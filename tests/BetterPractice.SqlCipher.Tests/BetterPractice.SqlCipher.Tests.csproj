@@ -22,36 +22,41 @@
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- Copy the native library for the current RID into the test output directory -->
+  <!-- Copy the native library for the current RID into the test output directory.
+       When RuntimeIdentifier is not set, auto-detect from the host architecture. -->
+  <PropertyGroup>
+    <_HostArch>$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)</_HostArch>
+  </PropertyGroup>
+
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
     <Content Include="..\..\native\bin\osx-arm64\libsqlcipher.dylib"
-             Condition="('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'osx-arm64') And Exists('..\..\native\bin\osx-arm64\libsqlcipher.dylib')">
+             Condition="('$(RuntimeIdentifier)' == 'osx-arm64' Or ('$(RuntimeIdentifier)' == '' And '$(_HostArch)' == 'Arm64')) And Exists('..\..\native\bin\osx-arm64\libsqlcipher.dylib')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\native\bin\osx-x64\libsqlcipher.dylib"
-             Condition="'$(RuntimeIdentifier)' == 'osx-x64' And Exists('..\..\native\bin\osx-x64\libsqlcipher.dylib')">
+             Condition="('$(RuntimeIdentifier)' == 'osx-x64' Or ('$(RuntimeIdentifier)' == '' And '$(_HostArch)' == 'X64')) And Exists('..\..\native\bin\osx-x64\libsqlcipher.dylib')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <Content Include="..\..\native\bin\linux-x64\libsqlcipher.so"
-             Condition="('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-x64') And Exists('..\..\native\bin\linux-x64\libsqlcipher.so')">
+             Condition="('$(RuntimeIdentifier)' == 'linux-x64' Or ('$(RuntimeIdentifier)' == '' And '$(_HostArch)' == 'X64')) And Exists('..\..\native\bin\linux-x64\libsqlcipher.so')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\native\bin\linux-arm64\libsqlcipher.so"
-             Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And Exists('..\..\native\bin\linux-arm64\libsqlcipher.so')">
+             Condition="('$(RuntimeIdentifier)' == 'linux-arm64' Or ('$(RuntimeIdentifier)' == '' And '$(_HostArch)' == 'Arm64')) And Exists('..\..\native\bin\linux-arm64\libsqlcipher.so')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <Content Include="..\..\native\bin\win-x64\sqlcipher.dll"
-             Condition="('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64') And Exists('..\..\native\bin\win-x64\sqlcipher.dll')">
+             Condition="('$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And '$(_HostArch)' == 'X64')) And Exists('..\..\native\bin\win-x64\sqlcipher.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\native\bin\win-arm64\sqlcipher.dll"
-             Condition="'$(RuntimeIdentifier)' == 'win-arm64' And Exists('..\..\native\bin\win-arm64\sqlcipher.dll')">
+             Condition="('$(RuntimeIdentifier)' == 'win-arm64' Or ('$(RuntimeIdentifier)' == '' And '$(_HostArch)' == 'Arm64')) And Exists('..\..\native\bin\win-arm64\sqlcipher.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

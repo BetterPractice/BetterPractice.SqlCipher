@@ -128,19 +128,12 @@
       <_MacArch Condition="'$(TargetRid)' == 'osx-x64'">x86_64</_MacArch>
       <_OpenSslInc>$(OpenSslRoot)/include</_OpenSslInc>
       <_OpenSslLib>$(OpenSslRoot)/lib</_OpenSslLib>
+      <!-- Build as a single line — multiline Exec Command is split by /bin/sh on Unix -->
+      <_CompileCmd>clang -arch $(_MacArch) -O2 -shared -fPIC $(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' ')) -I&quot;$(_OpenSslInc)&quot; -o &quot;$(_OutLib)&quot; &quot;$(SqlCipherSrc)&quot; -L&quot;$(_OpenSslLib)&quot; -lcrypto -Wl,-install_name,@rpath/libsqlcipher.dylib</_CompileCmd>
     </PropertyGroup>
 
     <MakeDir Directories="$(_OutDir)" />
-
-    <Exec Command="clang -arch $(_MacArch) -O2 -shared -fPIC
-      $(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' '))
-      -I&quot;$(_OpenSslInc)&quot;
-      -o &quot;$(_OutLib)&quot;
-      &quot;$(SqlCipherSrc)&quot;
-      -L&quot;$(_OpenSslLib)&quot; -lcrypto
-      -Wl,-install_name,@rpath/libsqlcipher.dylib"
-          WorkingDirectory="$(NativeRoot)" />
-
+    <Exec Command="$(_CompileCmd)" WorkingDirectory="$(NativeRoot)" />
     <Message Importance="High" Text="Built: $(_OutLib)" />
   </Target>
 
@@ -163,18 +156,12 @@
 
       <_OpenSslInc>$(OpenSslRoot)/include</_OpenSslInc>
       <_OpenSslLib>$(OpenSslRoot)/lib</_OpenSslLib>
+      <!-- Build as a single line — multiline Exec Command is split by /bin/sh on Unix -->
+      <_CompileCmd>$(_CC) -O2 -shared -fPIC $(_LinuxArch) $(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' ')) -I&quot;$(_OpenSslInc)&quot; -o &quot;$(_OutLib)&quot; &quot;$(SqlCipherSrc)&quot; -L&quot;$(_OpenSslLib)&quot; -lcrypto -lpthread -ldl</_CompileCmd>
     </PropertyGroup>
 
     <MakeDir Directories="$(_OutDir)" />
-
-    <Exec Command="$(_CC) -O2 -shared -fPIC $(_LinuxArch)
-      $(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' '))
-      -I&quot;$(_OpenSslInc)&quot;
-      -o &quot;$(_OutLib)&quot;
-      &quot;$(SqlCipherSrc)&quot;
-      -L&quot;$(_OpenSslLib)&quot; -lcrypto -lpthread -ldl"
-          WorkingDirectory="$(NativeRoot)" />
-
+    <Exec Command="$(_CompileCmd)" WorkingDirectory="$(NativeRoot)" />
     <Message Importance="High" Text="Built: $(_OutLib)" />
   </Target>
 
