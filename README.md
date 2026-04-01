@@ -332,12 +332,12 @@ public sealed class User : IEntity<int>
 ```csharp
 // Insert — Id is 0, generator uses INSERT and populates Id from last_insert_rowid
 var user = new User { Name = "Alice", Email = "alice@example.com", Score = 9.5 };
-user = await db.Save<User, int>(user);
+user = await db.Save(user);
 // user.Id is now the auto-assigned primary key
 
 // Update — Id is non-zero, generator uses INSERT OR REPLACE
 user.Score = 10.0;
-await db.Save<User, int>(user);
+await db.Save(user);
 ```
 
 ### Save multiple
@@ -348,38 +348,38 @@ var users = new[]
     new User { Name = "Bob" },
     new User { Name = "Carol" },
 };
-await db.SaveAll<User, int>(users);
+await db.SaveAll(users);
 ```
 
 ### Fetch all
 
 ```csharp
-IReadOnlyList<User> all = await db.Fetch<User, int>();
+IReadOnlyList<User> all = await db.Fetch();
 ```
 
 ### Fetch with expression
 
 ```csharp
-IReadOnlyList<User> topScorers = await db.Fetch<User, int>(
+IReadOnlyList<User> topScorers = await db.Fetch(
     new ColumnRef<double>("score") >= 8.0);
 ```
 
 ### Fetch one by primary key
 
 ```csharp
-User? user = await db.FetchOne<User, int>(42);
+User? user = await db.FetchOne(42);
 ```
 
 ### Delete by primary key
 
 ```csharp
-await db.Delete<User, int>(42);
+await db.Delete(42);
 ```
 
 ### Delete with expression
 
 ```csharp
-await db.Delete<User, int>(new ColumnRef<double>("score") < 1.0);
+await db.Delete(new ColumnRef<double>("score") < 1.0);
 ```
 
 ---
