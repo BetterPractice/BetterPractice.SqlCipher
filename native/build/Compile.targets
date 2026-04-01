@@ -57,7 +57,7 @@
     <!-- Override OpenSslRoot if OpenSSL is not in the default system paths -->
     <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('OSX'))">/opt/homebrew/opt/openssl@3</OpenSslRoot>
     <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('OSX')) And !Exists('/opt/homebrew/opt/openssl@3')">/usr/local/opt/openssl@3</OpenSslRoot>
-    <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('Linux')">/usr</OpenSslRoot>
+    <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('Linux'))">/usr</OpenSslRoot>
   </PropertyGroup>
 
   <!-- ====================================================================
