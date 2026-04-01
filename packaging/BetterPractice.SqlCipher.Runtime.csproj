@@ -6,11 +6,20 @@
     <Version>0.1.0</Version>
     <Authors>BetterPractice.io</Authors>
     <Description>Native SQLCipher binary for $(RuntimeIdentifier) — BetterPractice.SqlCipher runtime package.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageThirdPartyNoticesFile>THIRD_PARTY_NOTICES</PackageThirdPartyNoticesFile>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/BetterPractice/BetterPractice.SqlCipher</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/BetterPractice/BetterPractice.SqlCipher</PackageProjectUrl>
     <!-- No managed output — this package contains only the native binary -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <NoBuild>true</NoBuild>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\THIRD_PARTY_NOTICES" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <!-- Native binary content, resolved from native/bin/<rid>/ -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">

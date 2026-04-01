@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build and Test (linux-x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      # Cache the compiled native binary by the hash of the amalgamation source.
+      # A cache hit skips compilation entirely. A miss triggers a fresh compile and
+      # populates the cache for subsequent runs.
+      - name: Cache native binary
+        id: cache-native
+        uses: actions/cache@v4
+        with:
+          path: native/bin/linux-x64/
+          key: native-linux-x64-${{ hashFiles('native/src/sqlite3.c') }}
+
+      - name: Install native build dependencies
+        if: steps.cache-native.outputs.cache-hit != 'true'
+        run: sudo apt-get install -y gcc libssl-dev
+
+      - name: Compile SQLCipher (linux-x64)
+        if: steps.cache-native.outputs.cache-hit != 'true'
+        run: dotnet msbuild native/build/Compile.targets -t:Compile -p:TargetRid=linux-x64
+
+      - name: Build
+        run: dotnet build BetterPractice.SqlCipher.sln -c Release
+
+      - name: Test
+        run: dotnet test tests/BetterPractice.SqlCipher.Tests/ -c Release --logger "console;verbosity=normal" --no-build

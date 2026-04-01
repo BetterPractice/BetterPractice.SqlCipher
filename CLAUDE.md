@@ -31,7 +31,7 @@ BetterPractice.SqlCipher is a C# wrapper around SQLCipher, providing an encrypte
 SqlCipher-Net/
   BetterPractice.SqlCipher.sln
   src/
-    BetterPractice.SqlCipher.Core/          ← net8.0; managed library + P/Invoke layer
+    BetterPractice.SqlCipher.Core/          ← net9.0; managed library + P/Invoke layer
     BetterPractice.SqlCipher.Generator/     ← netstandard2.0; Roslyn IIncrementalGenerator
   native/
     src/                                    ← SQLCipher amalgamation (sqlite3.c/.h)
@@ -40,7 +40,7 @@ SqlCipher-Net/
   packaging/
     BetterPractice.SqlCipher.Runtime.csproj ← single project, multi-RID runtime packages
   tests/
-    BetterPractice.SqlCipher.Tests/         ← net8.0; integration tests against real SQLCipher
+    BetterPractice.SqlCipher.Tests/         ← net9.0; integration tests against real SQLCipher
   spec/                                     ← source of truth
 ```
 
