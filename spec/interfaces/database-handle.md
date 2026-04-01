@@ -150,16 +150,20 @@ Task<ResultSet> Query(BuiltQuery query)
 
 ### `ExecuteTransaction`
 
-Executes a group of operations atomically within a single transaction. All operations in `body` run inline on the background task — no other operations can interleave.
+Executes a group of operations atomically within a single transaction. All operations in `body` run inline on the background task — no other operations can interleave. The return value of `body` is passed through to the caller.
 
 ```
-Task ExecuteTransaction(Func<ITransactionContext, Task> body)
+Task<T> ExecuteTransaction<T>(Func<ITransactionContext, T> body)
+Task     ExecuteTransaction(Action<ITransactionContext> body)
 ```
+
+The body is synchronous. Async bodies are intentionally not supported — awaiting inside a transaction body would release the calling thread while the database connection is held open inside the Operation Queue worker, which would allow other operations to queue up behind a stalled transaction without being able to make progress.
 
 **Behavior:**
 - `BEGIN` before invoking `body`
 - `COMMIT` if `body` completes without exception
 - `ROLLBACK` if `body` throws; the exception is re-thrown to the caller
+- The `Action` overload is equivalent to `ExecuteTransaction<bool>` with a discarded return value
 
 **Errors:**
 - Body exception → `ROLLBACK` attempted, original exception re-thrown

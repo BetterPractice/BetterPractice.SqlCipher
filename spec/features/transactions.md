@@ -13,16 +13,20 @@ A transaction groups multiple operations into a single atomic unit — either al
 
 ## Transaction Execution
 
-**Trigger:** Caller invokes `DatabaseHandle.ExecuteTransaction(Func<ITransactionContext, Task> body)`
+**Trigger:** Caller invokes `DatabaseHandle.ExecuteTransaction<T>(Func<ITransactionContext, T> body)` or the `Action` overload.
+
+The body is **synchronous**. Async bodies are not supported. Awaiting inside a transaction body would release the Operation Queue worker thread while the database connection is held, allowing other enqueued operations to stall indefinitely waiting behind a transaction that cannot proceed. Keeping the body synchronous ensures the entire transaction completes atomically without yielding.
 
 **Steps:**
 1. Submit a single composite Operation to the Operation Queue
 2. The background consumer:
    a. Executes `BEGIN`
    b. Constructs an `ITransactionContext` backed by the open connection
-   c. Invokes `body(context)` and awaits it
-   d. If the body completes without exception: executes `COMMIT`
-   e. If the body throws: executes `ROLLBACK`, then re-throws the exception to the caller's awaited Task
+   c. Invokes `body(context)` synchronously
+   d. If the body completes without exception: executes `COMMIT`, returns the body's return value to the caller's `Task<T>`
+   e. If the body throws: executes `ROLLBACK`, then re-throws the exception to the caller's awaited `Task<T>`
+
+The `Action` overload is a convenience wrapper over the generic form that discards the return value.
 
 **Serialization guarantee:** Because the entire transaction — `BEGIN`, all body operations, and `COMMIT`/`ROLLBACK` — runs as a single Operation on the queue, no other operation can execute between any two statements in the transaction body.
 

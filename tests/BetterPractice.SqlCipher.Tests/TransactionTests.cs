@@ -28,7 +28,6 @@ public sealed class TransactionTests
         {
             ctx.Execute("UPDATE accounts SET balance = balance - 100 WHERE id = 1");
             ctx.Execute("UPDATE accounts SET balance = balance + 100 WHERE id = 2");
-            return Task.CompletedTask;
         });
 
         var rows = await _db.Query("SELECT balance FROM accounts ORDER BY id");
@@ -49,7 +48,6 @@ public sealed class TransactionTests
         }
         catch (InvalidOperationException) { /* expected */ }
 
-        // Both rows should be unchanged
         var rows = await _db!.Query("SELECT balance FROM accounts ORDER BY id");
         Assert.That(rows[0]["balance"].AsInt32(), Is.EqualTo(1000));
         Assert.That(rows[1]["balance"].AsInt32(), Is.EqualTo(500));
@@ -62,29 +60,30 @@ public sealed class TransactionTests
         {
             ctx.Execute("UPDATE accounts SET balance = 9999 WHERE id = 1");
             var rows = ctx.Query("SELECT balance FROM accounts WHERE id = 1");
-            // Mid-transaction read should see the pending change
             Assert.That(rows[0]["balance"].AsInt32(), Is.EqualTo(9999));
-            return Task.CompletedTask;
         });
     }
 
     [Test]
     public async Task Transaction_SequentialCalls_BothSucceed()
     {
-        // Two sequential transactions — verify both complete cleanly
         await _db!.ExecuteTransaction(ctx =>
-        {
-            ctx.Execute("UPDATE accounts SET balance = balance + 1 WHERE id = 1");
-            return Task.CompletedTask;
-        });
+            ctx.Execute("UPDATE accounts SET balance = balance + 1 WHERE id = 1"));
+
         await _db.ExecuteTransaction(ctx =>
-        {
-            ctx.Execute("UPDATE accounts SET balance = balance + 1 WHERE id = 2");
-            return Task.CompletedTask;
-        });
+            ctx.Execute("UPDATE accounts SET balance = balance + 1 WHERE id = 2"));
 
         var rows = await _db.Query("SELECT balance FROM accounts ORDER BY id");
         Assert.That(rows[0]["balance"].AsInt32(), Is.EqualTo(1001));
         Assert.That(rows[1]["balance"].AsInt32(), Is.EqualTo(501));
+    }
+
+    [Test]
+    public async Task Transaction_ReturnValue_PassedThroughToCallerAsync()
+    {
+        int inserted = await _db!.ExecuteTransaction(ctx =>
+            ctx.Execute("INSERT INTO accounts VALUES (3, 250)"));
+
+        Assert.That(inserted, Is.EqualTo(1));
     }
 }

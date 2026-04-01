@@ -211,22 +211,27 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     /// Executes a group of operations atomically within a single transaction.
     /// All operations in <paramref name="body"/> run inline — no other operations can interleave.
     /// Commits if <paramref name="body"/> completes; rolls back if it throws.
+    /// The return value of <paramref name="body"/> is passed through to the returned Task.
     /// </summary>
-    public Task ExecuteTransaction(Func<ITransactionContext, Task> body)
+    /// <remarks>
+    /// The body must be synchronous. Async bodies are not supported — awaiting inside the body
+    /// would release the worker thread while the connection is held, stalling all other operations.
+    /// </remarks>
+    public Task<T> ExecuteTransaction<T>(Func<ITransactionContext, T> body)
     {
         ArgumentNullException.ThrowIfNull(body);
         ThrowIfDisposed();
 
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Enqueue(new CompositeOperation<bool>(conn =>
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Enqueue(new CompositeOperation<T>(conn =>
         {
             var context = new TransactionContext(conn);
             conn.Execute("BEGIN");
             try
             {
-                body(context).GetAwaiter().GetResult();
+                T result = body(context);
                 conn.Execute("COMMIT");
-                return true;
+                return result;
             }
             catch (Exception bodyException)
             {
@@ -239,6 +244,16 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
             }
         }, tcs));
         return tcs.Task;
+    }
+
+    /// <summary>
+    /// Executes a group of operations atomically within a single transaction.
+    /// Convenience overload for bodies that do not return a value.
+    /// </summary>
+    public Task ExecuteTransaction(Action<ITransactionContext> body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return ExecuteTransaction(ctx => { body(ctx); return true; });
     }
 
     /// <summary>

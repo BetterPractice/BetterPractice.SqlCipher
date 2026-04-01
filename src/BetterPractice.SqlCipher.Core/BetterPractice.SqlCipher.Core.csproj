@@ -17,7 +17,7 @@
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/BetterPractice/BetterPractice.SqlCipher</RepositoryUrl>
     <PackageProjectUrl>https://github.com/BetterPractice/BetterPractice.SqlCipher</PackageProjectUrl>
-    <!-- <PackageReadmeFile>README.md</PackageReadmeFile> -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +30,7 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
     <None Include="..\..\THIRD_PARTY_NOTICES" Pack="true" PackagePath="/" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <Target Name="IncludeGeneratorInPackage" BeforeTargets="_GetPackageFiles">
