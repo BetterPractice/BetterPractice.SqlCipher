@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <PackageId>BetterPractice.SqlCipher.runtime.$(RuntimeIdentifier)</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>BetterPractice.io</Authors>
+    <Description>Native SQLCipher binary for $(RuntimeIdentifier) — BetterPractice.SqlCipher runtime package.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!-- No managed output — this package contains only the native binary -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoBuild>true</NoBuild>
+  </PropertyGroup>
+
+  <!-- Native binary content, resolved from native/bin/<rid>/ -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <Content Include="..\native\bin\linux-x64\libsqlcipher.so">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\linux-x64\native\libsqlcipher.so</PackagePath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">
+    <Content Include="..\native\bin\linux-arm64\libsqlcipher.so">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\linux-arm64\native\libsqlcipher.so</PackagePath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-x64'">
+    <Content Include="..\native\bin\osx-x64\libsqlcipher.dylib">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\osx-x64\native\libsqlcipher.dylib</PackagePath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
+    <Content Include="..\native\bin\osx-arm64\libsqlcipher.dylib">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\osx-arm64\native\libsqlcipher.dylib</PackagePath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <Content Include="..\native\bin\win-x64\sqlcipher.dll">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\win-x64\native\sqlcipher.dll</PackagePath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
+    <Content Include="..\native\bin\win-arm64\sqlcipher.dll">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\win-arm64\native\sqlcipher.dll</PackagePath>
+    </Content>
+  </ItemGroup>
+
+</Project>

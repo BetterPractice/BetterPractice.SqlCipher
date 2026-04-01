@@ -1,0 +1,230 @@
+<!--
+  Compile.targets — cross-compiles SQLCipher from the amalgamation source.
+
+  Amalgamation provenance:
+    SQLCipher version  : 4.6.1
+    SQLite version     : 3.46.1
+    Upstream tag       : https://github.com/sqlcipher/sqlcipher/releases/tag/v4.6.1
+    Full checksums     : native/src/VERSION
+
+    sqlite3.c  SHA-256 : f240498b2f20d6876905041417903b7fd837f964ad6c94c04727ef022f386151
+    sqlite3.h  SHA-256 : 7df828fe118508d543476be6de79633522eb5222ae922cef467a619c5a003a48
+
+  To update the amalgamation, download the new release tarball, replace sqlite3.c
+  and sqlite3.h, recompute checksums, and update both this file and native/src/VERSION.
+
+  Usage (from repo root):
+    dotnet msbuild native/build/Compile.targets -t:CompileAll
+    dotnet msbuild native/build/Compile.targets -t:Compile -p:TargetRid=osx-arm64
+
+  Prerequisites per platform:
+    macOS   : Xcode Command Line Tools (clang), optional cross-compilers for x64
+    Linux   : gcc / clang; for arm64 cross-compile: gcc-aarch64-linux-gnu
+    Windows : MSVC (cl.exe) via VS Build Tools; for arm64 cross-compile: ARM64 toolchain
+
+  Outputs:
+    native/bin/<rid>/libsqlcipher.dylib   (macOS)
+    native/bin/<rid>/libsqlcipher.so      (Linux)
+    native/bin/<rid>/sqlcipher.dll        (Windows)
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- ====================================================================
+       Paths
+  ==================================================================== -->
+  <PropertyGroup>
+    <NativeRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..'))</NativeRoot>
+    <SqlCipherSrc>$(NativeRoot)src\sqlite3.c</SqlCipherSrc>
+    <NativeBinRoot>$(NativeRoot)bin\</NativeBinRoot>
+  </PropertyGroup>
+
+  <!-- SQLCipher compile flags shared across all platforms -->
+  <PropertyGroup>
+    <_SqlCipherDefines>
+      -DSQLITE_HAS_CODEC
+      -DSQLITE_TEMP_STORE=2
+      -DSQLITE_SOUNDEX
+      -DSQLITE_ENABLE_FTS5
+      -DSQLITE_ENABLE_JSON1
+      -DSQLITE_ENABLE_RTREE
+      -DSQLITE_ENABLE_COLUMN_METADATA
+      -DSQLITE_ENABLE_STAT4
+      -DSQLITE_MAX_VARIABLE_NUMBER=250000
+      -DSQLITE_THREADSAFE=1
+    </_SqlCipherDefines>
+
+    <!-- OpenSSL is required by SQLCipher for crypto primitives -->
+    <!-- Override OpenSslRoot if OpenSSL is not in the default system paths -->
+    <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('OSX'))">/opt/homebrew/opt/openssl@3</OpenSslRoot>
+    <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('OSX')) And !Exists('/opt/homebrew/opt/openssl@3')">/usr/local/opt/openssl@3</OpenSslRoot>
+    <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And $([MSBuild]::IsOSPlatform('Linux')">/usr</OpenSslRoot>
+  </PropertyGroup>
+
+  <!-- ====================================================================
+       Target: CompileAll — builds every supported RID for the current host
+  ==================================================================== -->
+  <Target Name="CompileAll">
+    <CallTarget Targets="Compile" />
+  </Target>
+
+  <!-- ====================================================================
+       Target: Compile — builds one RID (default: auto-detect from host)
+  ==================================================================== -->
+  <Target Name="Compile"
+          DependsOnTargets="_DetectRid;_ValidateSource;_CompileMac;_CompileLinux;_CompileWindows">
+  </Target>
+
+  <!-- ====================================================================
+       Detect the current host RID if TargetRid was not supplied
+  ==================================================================== -->
+  <Target Name="_DetectRid" Condition="'$(TargetRid)' == ''">
+    <!-- macOS arm64 -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">
+      <TargetRid>osx-arm64</TargetRid>
+    </PropertyGroup>
+    <!-- macOS x64 -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">
+      <TargetRid>osx-x64</TargetRid>
+    </PropertyGroup>
+    <!-- Linux x64 -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">
+      <TargetRid>linux-x64</TargetRid>
+    </PropertyGroup>
+    <!-- Linux arm64 -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">
+      <TargetRid>linux-arm64</TargetRid>
+    </PropertyGroup>
+    <!-- Windows x64 -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">
+      <TargetRid>win-x64</TargetRid>
+    </PropertyGroup>
+    <!-- Windows arm64 -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">
+      <TargetRid>win-arm64</TargetRid>
+    </PropertyGroup>
+
+    <Error Condition="'$(TargetRid)' == ''" Text="Could not determine TargetRid for the current host. Pass -p:TargetRid=&lt;rid&gt; explicitly." />
+    <Message Importance="High" Text="TargetRid auto-detected as: $(TargetRid)" />
+  </Target>
+
+  <!-- ====================================================================
+       Validate that sqlite3.c exists
+  ==================================================================== -->
+  <Target Name="_ValidateSource">
+    <Error Condition="!Exists('$(SqlCipherSrc)')"
+           Text="SQLCipher amalgamation not found at $(SqlCipherSrc). Copy the SQLCipher-patched sqlite3.c there before building." />
+  </Target>
+
+  <!-- ====================================================================
+       macOS (clang, produces .dylib)
+  ==================================================================== -->
+  <Target Name="_CompileMac"
+          Condition="$(TargetRid.StartsWith('osx-'))">
+
+    <PropertyGroup>
+      <_OutDir>$(NativeBinRoot)$(TargetRid)\</_OutDir>
+      <_OutLib>$(_OutDir)libsqlcipher.dylib</_OutLib>
+      <_MacArch Condition="'$(TargetRid)' == 'osx-arm64'">arm64</_MacArch>
+      <_MacArch Condition="'$(TargetRid)' == 'osx-x64'">x86_64</_MacArch>
+      <_OpenSslInc>$(OpenSslRoot)/include</_OpenSslInc>
+      <_OpenSslLib>$(OpenSslRoot)/lib</_OpenSslLib>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_OutDir)" />
+
+    <Exec Command="clang -arch $(_MacArch) -O2 -shared -fPIC
+      $(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' '))
+      -I&quot;$(_OpenSslInc)&quot;
+      -o &quot;$(_OutLib)&quot;
+      &quot;$(SqlCipherSrc)&quot;
+      -L&quot;$(_OpenSslLib)&quot; -lcrypto
+      -Wl,-install_name,@rpath/libsqlcipher.dylib"
+          WorkingDirectory="$(NativeRoot)" />
+
+    <Message Importance="High" Text="Built: $(_OutLib)" />
+  </Target>
+
+  <!-- ====================================================================
+       Linux (gcc or clang, produces .so)
+  ==================================================================== -->
+  <Target Name="_CompileLinux"
+          Condition="$(TargetRid.StartsWith('linux-'))">
+
+    <PropertyGroup>
+      <_OutDir>$(NativeBinRoot)$(TargetRid)\</_OutDir>
+      <_OutLib>$(_OutDir)libsqlcipher.so</_OutLib>
+
+      <!-- Native cross-compilers for arm64 on an x64 host -->
+      <_CC Condition="'$(TargetRid)' == 'linux-arm64' And $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) == 'X64'">aarch64-linux-gnu-gcc</_CC>
+      <_CC Condition="'$(_CC)' == ''">gcc</_CC>
+
+      <_LinuxArch Condition="'$(TargetRid)' == 'linux-arm64'">-march=armv8-a</_LinuxArch>
+      <_LinuxArch Condition="'$(TargetRid)' == 'linux-x64'">-m64</_LinuxArch>
+
+      <_OpenSslInc>$(OpenSslRoot)/include</_OpenSslInc>
+      <_OpenSslLib>$(OpenSslRoot)/lib</_OpenSslLib>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_OutDir)" />
+
+    <Exec Command="$(_CC) -O2 -shared -fPIC $(_LinuxArch)
+      $(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' '))
+      -I&quot;$(_OpenSslInc)&quot;
+      -o &quot;$(_OutLib)&quot;
+      &quot;$(SqlCipherSrc)&quot;
+      -L&quot;$(_OpenSslLib)&quot; -lcrypto -lpthread -ldl"
+          WorkingDirectory="$(NativeRoot)" />
+
+    <Message Importance="High" Text="Built: $(_OutLib)" />
+  </Target>
+
+  <!-- ====================================================================
+       Windows (cl.exe, produces .dll)
+       Run from a Visual Studio Developer Command Prompt or use vcvars64.bat.
+  ==================================================================== -->
+  <Target Name="_CompileWindows"
+          Condition="$(TargetRid.StartsWith('win-'))">
+
+    <PropertyGroup>
+      <_OutDir>$(NativeBinRoot)$(TargetRid)\</_OutDir>
+      <_OutLib>$(_OutDir)sqlcipher.dll</_OutLib>
+
+      <!-- Machine type for the linker -->
+      <_MachineArch Condition="'$(TargetRid)' == 'win-x64'">X64</_MachineArch>
+      <_MachineArch Condition="'$(TargetRid)' == 'win-arm64'">ARM64</_MachineArch>
+
+      <!-- OpenSSL on Windows: default to vcpkg triplet paths, override via OpenSslRoot -->
+      <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And '$(TargetRid)' == 'win-x64'">$(VCPKG_ROOT)\installed\x64-windows</OpenSslRoot>
+      <OpenSslRoot Condition="'$(OpenSslRoot)' == '' And '$(TargetRid)' == 'win-arm64'">$(VCPKG_ROOT)\installed\arm64-windows</OpenSslRoot>
+      <_OpenSslInc>$(OpenSslRoot)\include</_OpenSslInc>
+      <_OpenSslLib>$(OpenSslRoot)\lib</_OpenSslLib>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_OutDir)" />
+
+    <!--
+      cl.exe flags:
+        /O2        — optimize for speed
+        /LD        — create DLL
+        /MD        — link against the multithreaded DLL CRT
+        /I         — include paths
+        /D         — preprocessor defines
+        /Fe        — output DLL path
+        /link      — pass remaining args to the linker
+    -->
+    <Exec Command="cl.exe /O2 /LD /MD
+      /I &quot;$(_OpenSslInc)&quot;
+      /DSQLITE_HAS_CODEC /DSQLITE_TEMP_STORE=2 /DSQLITE_SOUNDEX
+      /DSQLITE_ENABLE_FTS5 /DSQLITE_ENABLE_JSON1 /DSQLITE_ENABLE_RTREE
+      /DSQLITE_ENABLE_COLUMN_METADATA /DSQLITE_ENABLE_STAT4
+      /DSQLITE_MAX_VARIABLE_NUMBER=250000 /DSQLITE_THREADSAFE=1
+      &quot;$(SqlCipherSrc)&quot;
+      /Fe&quot;$(_OutLib)&quot;
+      /link /MACHINE:$(_MachineArch)
+      /LIBPATH:&quot;$(_OpenSslLib)&quot; libcrypto.lib"
+          WorkingDirectory="$(NativeRoot)" />
+
+    <Message Importance="High" Text="Built: $(_OutLib)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+
+    <PackageId>BetterPractice.SqlCipher.Core</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>BetterPractice.io</Authors>
+    <Description>Encrypted embedded database for .NET — BetterPractice.SqlCipher managed library.</Description>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageThirdPartyNoticesFile>THIRD_PARTY_NOTICES</PackageThirdPartyNoticesFile>
+    <PackageTags>sqlcipher;sqlite;encryption;embedded-database</PackageTags>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/BetterPractice/BetterPractice.SqlCipher</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/BetterPractice/BetterPractice.SqlCipher</PackageProjectUrl>
+    <!-- <PackageReadmeFile>README.md</PackageReadmeFile> -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Bundle the source generator inside the package so consumers get entity mappers automatically -->
+    <ProjectReference Include="..\..\src\BetterPractice.SqlCipher.Generator\BetterPractice.SqlCipher.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD_PARTY_NOTICES" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <Target Name="IncludeGeneratorInPackage" BeforeTargets="_GetPackageFiles">
+    <MSBuild Projects="..\..\src\BetterPractice.SqlCipher.Generator\BetterPractice.SqlCipher.Generator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_GeneratorOutput" />
+    </MSBuild>
+    <ItemGroup>
+      <None Include="@(_GeneratorOutput)"
+            Pack="true"
+            PackagePath="analyzers/dotnet/cs"
+            Visible="false" />
+    </ItemGroup>
+  </Target>
+
+</Project>

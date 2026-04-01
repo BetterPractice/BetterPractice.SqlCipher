@@ -1,0 +1,28 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+
+## Native binaries
+native/bin/
+
+## SQLCipher amalgamation download artifacts (sqlite3.c and sqlite3.h are committed; tarballs are not)
+native/src/*.tar.gz
+native/src/sqlcipher-*/
+
+## NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+
+## OS
+.DS_Store
+Thumbs.db
+
+## IDE / tool settings
+.vscode/
+.claude/

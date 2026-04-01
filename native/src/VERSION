@@ -1,0 +1,8 @@
+SQLCipher 4.6.1
+SQLite amalgamation version: 3.46.1
+Upstream release tag: v4.6.1
+Source: https://github.com/sqlcipher/sqlcipher/releases/tag/v4.6.1
+
+SHA-256 checksums (for audit verification):
+  sqlite3.c  f240498b2f20d6876905041417903b7fd837f964ad6c94c04727ef022f386151
+  sqlite3.h  7df828fe118508d543476be6de79633522eb5222ae922cef467a619c5a003a48
