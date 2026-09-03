@@ -102,7 +102,8 @@ public sealed class EntityGenerator : IIncrementalGenerator
         if (primaryKeyProp is null || primaryKeyColumn is null) return null;
 
         return new EntityInfo(
-            symbol.ContainingNamespace?.ToDisplayString() ?? string.Empty,
+            // The global namespace displays as "<global namespace>", which is not a valid identifier.
+            symbol.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() : string.Empty,
             symbol.Name,
             tableName,
             idTypeName,

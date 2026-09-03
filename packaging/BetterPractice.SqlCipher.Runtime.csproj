@@ -14,6 +14,8 @@
     <!-- No managed output — this package contains only the native binary -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <NoBuild>true</NoBuild>
+    <!-- NU5128: a native-only package intentionally has no lib/ assemblies -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

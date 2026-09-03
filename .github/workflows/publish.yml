@@ -1,0 +1,156 @@
+name: Publish
+
+# Builds the native SQLCipher library for every supported runtime identifier, packs the
+# managed Core package and one runtime package per RID, runs the test suite, and pushes
+# to nuget.org. Triggered by a version tag (v0.1.0 → package version 0.1.0).
+#
+# The nuget.org push runs only when the NUGET_API_KEY repository secret is set. Without it
+# the workflow still builds and validates everything and uploads the packages as an artifact.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  native:
+    name: Native (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64,   os: ubuntu-latest }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: osx-arm64,   os: macos-latest }
+          - { rid: osx-x64,     os: macos-15-intel }
+          - { rid: win-x64,     os: windows-latest, vcpkg_triplet: x64-windows,   msvc_arch: x64 }
+          - { rid: win-arm64,   os: windows-11-arm, vcpkg_triplet: arm64-windows, msvc_arch: arm64 }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libssl-dev
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install OpenSSL via vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root -or -not (Test-Path "$root\vcpkg.exe")) {
+            $root = "$env:RUNNER_TEMP\vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git $root
+            & "$root\bootstrap-vcpkg.bat" -disableMetrics
+          }
+          & "$root\vcpkg.exe" install openssl:${{ matrix.vcpkg_triplet }}
+          "OPENSSL_ROOT=$root\installed\${{ matrix.vcpkg_triplet }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Compile SQLCipher (${{ matrix.rid }})
+        if: runner.os != 'Windows'
+        run: dotnet msbuild native/build/Compile.targets -t:Compile -p:TargetRid=${{ matrix.rid }}
+
+      - name: Compile SQLCipher (${{ matrix.rid }})
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: dotnet msbuild native/build/Compile.targets -t:Compile -p:TargetRid=${{ matrix.rid }} "-p:OpenSslRoot=$env:OPENSSL_ROOT"
+
+      - name: Upload native binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: native/bin/${{ matrix.rid }}/
+          if-no-files-found: error
+
+  pack:
+    name: Test, pack, publish
+    needs: native
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Download native binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: native/bin/
+
+      # download-artifact places each artifact under native/bin/native-<rid>/; strip the prefix.
+      - name: Arrange native binaries
+        run: |
+          for d in native/bin/native-*; do mv "$d" "native/bin/${d##*/native-}"; done
+          find native/bin -type f | sort
+
+      - name: Resolve package version from tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION_ARG=-p:Version=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+            echo "Publishing version ${GITHUB_REF_NAME#v}"
+          else
+            echo "Not a tag build; using the version declared in the project files."
+          fi
+
+      - name: Build
+        run: dotnet build BetterPractice.SqlCipher.sln -c Release $VERSION_ARG
+
+      - name: Test
+        run: dotnet test tests/BetterPractice.SqlCipher.Tests/ -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: Pack Core
+        run: dotnet pack src/BetterPractice.SqlCipher.Core -c Release -o nuget $VERSION_ARG
+
+      - name: Pack runtime packages
+        run: |
+          for rid in linux-x64 linux-arm64 osx-x64 osx-arm64 win-x64 win-arm64; do
+            dotnet pack packaging/BetterPractice.SqlCipher.Runtime.csproj -c Release -o nuget \
+              -p:RuntimeIdentifier=$rid $VERSION_ARG
+          done
+          ls -l nuget/
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: nuget/*.nupkg
+          if-no-files-found: error
+
+      - name: Push to nuget.org
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::warning::NUGET_API_KEY secret is not set. Packages were built and uploaded as the 'nuget' artifact but not pushed. Add the secret and re-run this workflow to publish."
+            exit 0
+          fi
+          dotnet nuget push 'nuget/*.nupkg' --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json --skip-duplicate

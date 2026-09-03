@@ -187,8 +187,6 @@
       <_OpenSslLib>$(OpenSslRoot)\lib</_OpenSslLib>
     </PropertyGroup>
 
-    <MakeDir Directories="$(_OutDir)" />
-
     <!--
       cl.exe flags:
         /O2        — optimize for speed
@@ -198,18 +196,18 @@
         /D         — preprocessor defines
         /Fe        — output DLL path
         /link      — pass remaining args to the linker
+
+      Built as a single line: on Windows, Exec writes the command to a .cmd file, so a
+      multiline command would run each line as a separate command.
+      Defines are derived from _SqlCipherDefines (-D → /D) so all platforms share one list.
     -->
-    <Exec Command="cl.exe /O2 /LD /MD
-      /I &quot;$(_OpenSslInc)&quot;
-      /DSQLITE_HAS_CODEC /DSQLITE_TEMP_STORE=2 /DSQLITE_SOUNDEX
-      /DSQLITE_ENABLE_FTS5 /DSQLITE_ENABLE_JSON1 /DSQLITE_ENABLE_RTREE
-      /DSQLITE_ENABLE_COLUMN_METADATA /DSQLITE_ENABLE_STAT4
-      /DSQLITE_MAX_VARIABLE_NUMBER=250000 /DSQLITE_THREADSAFE=1
-      &quot;$(SqlCipherSrc)&quot;
-      /Fe&quot;$(_OutLib)&quot;
-      /link /MACHINE:$(_MachineArch)
-      /LIBPATH:&quot;$(_OpenSslLib)&quot; libcrypto.lib"
-          WorkingDirectory="$(NativeRoot)" />
+    <PropertyGroup>
+      <_WinDefines>$(_SqlCipherDefines.Replace('%0a', ' ').Replace('%0d', ' ').Replace('-D', '/D'))</_WinDefines>
+      <_CompileCmd>cl.exe /O2 /LD /MD /I &quot;$(_OpenSslInc)&quot; $(_WinDefines) &quot;$(SqlCipherSrc)&quot; /Fe&quot;$(_OutLib)&quot; /link /MACHINE:$(_MachineArch) /LIBPATH:&quot;$(_OpenSslLib)&quot; libcrypto.lib</_CompileCmd>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_OutDir)" />
+    <Exec Command="$(_CompileCmd)" WorkingDirectory="$(NativeRoot)" />
 
     <Message Importance="High" Text="Built: $(_OutLib)" />
   </Target>
