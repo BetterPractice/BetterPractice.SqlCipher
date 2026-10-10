@@ -74,5 +74,6 @@ All properties are read-only after construction.
 
 ## Notes
 
+- With a Raw Key (ADR 008) the `KdfAlgorithm` and `KdfIterations` values are still written to the file header but do not affect the cost of opening; SQLCipher skips the KDF for the page key and derives the HMAC key with its fixed fast KDF.
 - `CipherConfiguration` is a creation-time parameter only. There is no mechanism to change the cipher configuration of an existing database through this library — doing so requires migrating data to a new database file, which is out of scope.
 - The SQLCipher defaults documented here match SQLCipher 4. Databases created with SQLCipher 3 defaults (SHA1, lower iteration counts) are not a target use case.

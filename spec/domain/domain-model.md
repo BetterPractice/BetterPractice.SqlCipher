@@ -19,7 +19,7 @@ The root entity. Represents an open, encrypted SQLite database and is the sole p
 **Invariants:**
 - A DatabaseHandle is either open or disposed — there is no intermediate state
 - All operations submitted after disposal are rejected with an explicit error
-- WAL mode is always active; it is set immediately after opening or creating the database
+- The journal mode (WAL or rollback) is chosen at creation, recorded in the file, and verified on open (ADR 008)
 - The Operation Queue is unbounded
 - The background task is the only code that touches the SQLite connection directly
 
@@ -146,6 +146,6 @@ DatabaseHandle
 
 1. **No silent failures.** Every error surfaces as an exception on the caller's awaited task. The Operation Queue consumer never swallows exceptions.
 2. **No shared mutable state.** The SQLite connection is owned exclusively by the background task. No other code path accesses it.
-3. **WAL always on.** Any database opened or created by a DatabaseHandle has WAL mode enabled. This is not negotiable and not configurable.
-4. **Passphrase never persisted.** The Passphrase string is used to key the database and then released. It is never written to disk, logged, or stored in any field on any object.
+3. **Journal mode is creation-time only.** A DatabaseHandle sets the journal mode (WAL by default, rollback on request) when it creates a file and verifies on open that the file is in one of those two modes. The library never switches the journal mode of an existing file (ADR 008).
+4. **Key material never persisted.** The Passphrase string or Raw Key bytes are used to key the database and then released. They are never written to disk, logged, or stored in any field on any object. An Unencrypted Database has no key.
 5. **CipherConfiguration is creation-time only.** Once a database is created, its CipherConfiguration is baked into the file. The library does not attempt to read or verify the stored configuration on open — SQLCipher handles that implicitly via the key verification page.

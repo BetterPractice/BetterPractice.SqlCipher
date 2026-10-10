@@ -8,7 +8,7 @@
 
 ## Overview
 
-`DatabaseHandle` is the root public type. It is obtained via static factory methods (`Create` and `Open`) and must be disposed when no longer needed. It is safe to use from multiple threads without external synchronization.
+`DatabaseHandle` is the root public type. It is obtained via static factory methods (`Create`, `CreateUnencrypted`, `Open`, `OpenUnencrypted`) and must be disposed when no longer needed. It is safe to use from multiple threads without external synchronization.
 
 ---
 
@@ -16,51 +16,87 @@
 
 ### `DatabaseHandle.Create`
 
-Creates a new encrypted database file.
+Creates a new encrypted database file, keyed by a Passphrase or a Raw Key.
 
 ```
 static Task<DatabaseHandle> Create(
     string path,
     string passphrase,
-    CipherConfiguration? cipherConfiguration = null)
+    CipherConfiguration? cipherConfiguration = null,
+    JournalMode journalMode = JournalMode.Wal)
+
+static Task<DatabaseHandle> Create(
+    string path,
+    byte[] rawKey,
+    CipherConfiguration? cipherConfiguration = null,
+    JournalMode journalMode = JournalMode.Wal)
 ```
 
 **Parameters:**
 - `path` — Absolute path where the database file will be created. The directory must exist. The file must not already exist.
 - `passphrase` — The Passphrase used to encrypt the database. Must not be null or empty.
-- `cipherConfiguration` — Optional. If null, `CipherConfiguration.Default` is used.
+- `rawKey` — A 32-byte Raw Key applied without KDF (ADR 008). Must be exactly 32 bytes.
+- `cipherConfiguration` — Optional. If null, `CipherConfiguration.Default` is used. With a Raw Key the KDF parameters do not affect the open cost.
+- `journalMode` — `Wal` (default) or `Rollback`. Fixed at creation.
 
 **Returns:** An open `DatabaseHandle` ready to accept operations.
 
 **Errors:**
 - File already exists at `path` → explicit exception (not silent overwrite)
 - Directory does not exist → explicit exception
-- `passphrase` is null or empty → explicit exception before any native call
+- `passphrase` is null or empty, or `rawKey` is not 32 bytes → explicit exception before any native call
 - Native SQLCipher error → wrapped exception with SQLCipher error code and message
+
+---
+
+### `DatabaseHandle.CreateUnencrypted`
+
+Creates a new plain SQLite database file. No key is applied; the file is readable by any SQLite tool. A separate method, not an optional passphrase, so that plaintext is always an explicit choice (ADR 008).
+
+```
+static Task<DatabaseHandle> CreateUnencrypted(
+    string path,
+    JournalMode journalMode = JournalMode.Wal)
+```
+
+**Errors:** as for `Create`, less the key errors.
 
 ---
 
 ### `DatabaseHandle.Open`
 
-Opens an existing encrypted database file.
+Opens an existing encrypted database file with the kind of key it was created with.
 
 ```
-static Task<DatabaseHandle> Open(
-    string path,
-    string passphrase)
+static Task<DatabaseHandle> Open(string path, string passphrase)
+static Task<DatabaseHandle> Open(string path, byte[] rawKey)
 ```
 
 **Parameters:**
 - `path` — Absolute path to an existing database file.
 - `passphrase` — The Passphrase used to decrypt the database. Must not be null or empty.
+- `rawKey` — The 32-byte Raw Key the database was created or rekeyed with.
 
 **Returns:** An open `DatabaseHandle` ready to accept operations.
 
 **Errors:**
 - File does not exist at `path` → explicit exception
-- Passphrase incorrect → explicit exception (SQLCipher returns an error on first read if key is wrong)
-- `passphrase` is null or empty → explicit exception before any native call
+- Key incorrect, wrong kind of key, or file not encrypted → explicit exception (SQLCipher returns an error on first read)
+- `passphrase` is null or empty, or `rawKey` is not 32 bytes → explicit exception before any native call
+- Journal mode is neither WAL nor rollback → explicit exception (not created by this library)
 - Native SQLCipher error → wrapped exception with SQLCipher error code and message
+
+---
+
+### `DatabaseHandle.OpenUnencrypted`
+
+Opens an existing plain SQLite database file.
+
+```
+static Task<DatabaseHandle> OpenUnencrypted(string path)
+```
+
+**Errors:** as for `Open`, with "file is encrypted or not a SQLite database" in place of the key errors.
 
 ---
 
@@ -100,17 +136,20 @@ Task<ResultSet> Query(string sql, IReadOnlyDictionary<string, object?>? paramete
 
 ### `Rekey`
 
-Changes the Passphrase on the database. Rewrites the entire database file. This operation is expensive and blocking to other operations while in progress (serialized through the Operation Queue like all other operations).
+Changes the key on an encrypted database. Rewrites the entire database file. This operation is expensive and blocking to other operations while in progress (serialized through the Operation Queue like all other operations). Either kind of key may replace either kind.
 
 ```
 Task Rekey(string newPassphrase)
+Task Rekey(byte[] newRawKey)
 ```
 
 **Parameters:**
 - `newPassphrase` — The new Passphrase. Must not be null or empty.
+- `newRawKey` — The new 32-byte Raw Key.
 
 **Errors:**
-- `newPassphrase` is null or empty → explicit exception
+- `newPassphrase` is null or empty, or `newRawKey` is not 32 bytes → explicit exception
+- `IsEncrypted` is false → explicit exception
 - Native SQLCipher error → wrapped exception
 - Handle disposed → explicit exception
 
@@ -244,7 +283,9 @@ ValueTask DisposeAsync()
 | Property | Type | Description |
 |---|---|---|
 | `Path` | `string` | Absolute path to the database file. Read-only. |
-| `CipherConfiguration` | `CipherConfiguration` | The cipher configuration used when the database was created. Read-only. |
+| `CipherConfiguration` | `CipherConfiguration` | The cipher configuration used when the database was created. Read-only; meaningless when `IsEncrypted` is false. |
+| `IsEncrypted` | `bool` | False for a database created or opened through the unencrypted entry points. |
+| `JournalMode` | `JournalMode` | `Wal` or `Rollback`, as requested at creation or read from the file on open. |
 | `IsDisposed` | `bool` | True if the handle has been disposed. |
 
 ---

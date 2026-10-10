@@ -38,6 +38,9 @@ The platform-specific compiled binary (`libsqlcipher.dylib`, `libsqlcipher.so`, 
 ### Opening
 The act of connecting to an existing encrypted **Database** file with a **Passphrase**. Distinct from **Database Creation**. If the passphrase is incorrect, opening fails with an explicit error — it does not silently produce corrupt reads.
 
+### Unencrypted Database
+A plain SQLite file managed through the same handle API with no **Passphrase** and no **Cipher Configuration** (`CreateUnencrypted`, `OpenUnencrypted`). Intended for data that is public or already ciphertext. Opening an encrypted file as unencrypted, or the reverse, fails with an explicit error. **Rekeying** does not apply.
+
 ### Operation
 A unit of work submitted to the **Operation Queue** for execution against the **Database**. Operations are executed serially in submission order. An Operation carries its SQL, parameters, and a `TaskCompletionSource` for returning the result to the caller.
 
@@ -117,5 +120,11 @@ Table names prefixed with `_bp_` are reserved for internal use by BetterPractice
 
 ---
 
+### Journal Mode
+How SQLite records changes so a transaction can be rolled back: **WAL Mode** or the rollback journal (`JournalMode.Rollback`, SQLite's `DELETE` mode). Chosen at **Database Creation**, recorded in the file, and verified on **Opening**. WAL is the default; rollback keeps the database a single file at all times, for files that are copied, backed up as blobs, or read from read-only storage (ADR 008).
+
+### Raw Key
+A 32-byte key applied to SQLCipher as a blob literal (`PRAGMA key = "x'…'"`) so that no **KDF Algorithm** runs. For callers that already hold full-entropy key material; a database keyed this way cannot be opened with a **Passphrase** (ADR 008).
+
 ### WAL Mode
-Write-Ahead Logging — the SQLite journal mode used by all databases managed by BetterPractice.SqlCipher. WAL mode is always enabled; it is not configurable. WAL mode provides better write performance and reduced contention compared to the default rollback journal.
+Write-Ahead Logging — the default SQLite **Journal Mode** for databases created by BetterPractice.SqlCipher. Cheaper commits than the rollback journal, at the cost of `-wal` and `-shm` sidecar files that exist until the last connection closes cleanly.

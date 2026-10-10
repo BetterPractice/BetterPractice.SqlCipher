@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-30
 **Author:** Holly Schilling
+**Superseded by:** ADR 008 for the premise that WAL mode is enforced on every database; the file-based testing strategy stands
 
 ---
 

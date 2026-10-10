@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-30
 **Author:** Holly Schilling
+**Superseded by:** ADR 008 for the statement that WAL mode is always enabled; the concurrency model itself stands
 
 ---
 

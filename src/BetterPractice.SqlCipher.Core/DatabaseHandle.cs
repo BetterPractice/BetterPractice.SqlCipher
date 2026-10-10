@@ -9,7 +9,8 @@ namespace BetterPractice.SqlCipher;
 /// The primary handle for interacting with an encrypted SQLCipher database.
 /// All operations are serialized through an internal Operation Queue — safe to use
 /// from multiple threads without external synchronization.
-/// Obtain instances via <see cref="Create"/> or <see cref="Open"/>; dispose when done.
+/// Obtain instances via the static factories (<c>Create</c>, <c>CreateUnencrypted</c>, <c>Open</c>,
+/// <c>OpenUnencrypted</c>); dispose when done.
 /// </summary>
 public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
 {
@@ -22,11 +23,15 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     // Construction (private — use static factories)
     // -------------------------------------------------------------------------
 
-    private DatabaseHandle(DatabaseConnection connection, string path, CipherConfiguration cipherConfiguration)
+    private DatabaseHandle(
+        DatabaseConnection connection, string path, CipherConfiguration cipherConfiguration,
+        bool isEncrypted, JournalMode journalMode)
     {
         _connection       = connection;
         Path              = path;
         CipherConfiguration = cipherConfiguration;
+        IsEncrypted = isEncrypted;
+        JournalMode = journalMode;
         _queue            = Channel.CreateUnbounded<Operation>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -45,21 +50,39 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     /// <param name="path">Absolute path where the file will be created. Must not already exist.</param>
     /// <param name="passphrase">Passphrase used to encrypt the database. Must not be null or empty.</param>
     /// <param name="cipherConfiguration">Cipher parameters. If null, <see cref="CipherConfiguration.Default"/> is used.</param>
+    /// <param name="journalMode">Journal mode, fixed at creation. Default: <see cref="JournalMode.Wal"/>.</param>
     public static Task<DatabaseHandle> Create(
         string path,
         string passphrase,
-        CipherConfiguration? cipherConfiguration = null)
+        CipherConfiguration? cipherConfiguration = null,
+        JournalMode journalMode = JournalMode.Wal)
     {
-        ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentException.ThrowIfNullOrEmpty(passphrase);
+        return CreateEncrypted(path, conn => ApplyKey(conn, passphrase), cipherConfiguration, journalMode);
+    }
 
-        if (File.Exists(path))
-            throw new InvalidOperationException($"Database file already exists: {path}");
+    /// <summary>
+    /// Creates a new encrypted database file keyed by a 32-byte raw key, applied without SQLCipher's
+    /// KDF (ADR 008). For callers that already hold full-entropy key material.
+    /// </summary>
+    /// <param name="path">Absolute path where the file will be created. Must not already exist.</param>
+    /// <param name="rawKey">Exactly <see cref="RawKeyLength"/> bytes. Not retained and not zeroed by the library.</param>
+    /// <param name="cipherConfiguration">Cipher parameters. If null, <see cref="CipherConfiguration.Default"/> is used; the KDF parameters do not affect a raw-key open.</param>
+    /// <param name="journalMode">Journal mode, fixed at creation. Default: <see cref="JournalMode.Wal"/>.</param>
+    public static Task<DatabaseHandle> Create(
+        string path,
+        byte[] rawKey,
+        CipherConfiguration? cipherConfiguration = null,
+        JournalMode journalMode = JournalMode.Wal)
+    {
+        ValidateRawKey(rawKey);
+        return CreateEncrypted(path, conn => ApplyRawKey(conn, rawKey), cipherConfiguration, journalMode);
+    }
 
-        string? directory = System.IO.Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            throw new DirectoryNotFoundException($"Directory does not exist: {directory}");
-
+    private static Task<DatabaseHandle> CreateEncrypted(
+        string path, Action<DatabaseConnection> applyKey, CipherConfiguration? cipherConfiguration, JournalMode journalMode)
+    {
+        ValidateCreatePath(path);
         var config = cipherConfiguration ?? CipherConfiguration.Default;
 
         return Task.Run(() =>
@@ -68,16 +91,77 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
                 SqliteNative.SQLITE_OPEN_READWRITE | SqliteNative.SQLITE_OPEN_CREATE);
             try
             {
-                ApplyKey(connection, passphrase);
+                applyKey(connection);
                 ApplyCipherConfiguration(connection, config);
-                EnableWalMode(connection);
+                SetJournalMode(connection, journalMode);
                 InitializeSentinelTable(connection);
-                return new DatabaseHandle(connection, path, config);
+                return new DatabaseHandle(connection, path, config, isEncrypted: true, journalMode);
             }
             catch
             {
                 connection.Dispose();
                 TryDeleteFile(path);
+                throw;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Creates a new <b>unencrypted</b> SQLite database file at <paramref name="path"/>. No key is
+    /// applied, so the file is an ordinary SQLite database readable by any SQLite tool. Use this only
+    /// for data that is public or already ciphertext; <see cref="Rekey"/> is not available on the
+    /// returned handle.
+    /// </summary>
+    /// <param name="path">Absolute path where the file will be created. Must not already exist.</param>
+    /// <param name="journalMode">Journal mode, fixed at creation. Default: <see cref="JournalMode.Wal"/>.</param>
+    public static Task<DatabaseHandle> CreateUnencrypted(string path, JournalMode journalMode = JournalMode.Wal)
+    {
+        ValidateCreatePath(path);
+
+        return Task.Run(() =>
+        {
+            DatabaseConnection connection = OpenNativeConnection(path,
+                SqliteNative.SQLITE_OPEN_READWRITE | SqliteNative.SQLITE_OPEN_CREATE);
+            try
+            {
+                SetJournalMode(connection, journalMode);
+                InitializeSentinelTable(connection);
+                return new DatabaseHandle(connection, path, CipherConfiguration.Default, isEncrypted: false, journalMode);
+            }
+            catch
+            {
+                connection.Dispose();
+                TryDeleteFile(path);
+                throw;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Opens an existing <b>unencrypted</b> SQLite database file at <paramref name="path"/>. Fails with
+    /// an explicit error if the file is encrypted or is not a SQLite database.
+    /// </summary>
+    /// <param name="path">Absolute path to an existing database file.</param>
+    public static Task<DatabaseHandle> OpenUnencrypted(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Database file not found: {path}", path);
+
+        return Task.Run(() =>
+        {
+            DatabaseConnection connection = OpenNativeConnection(path,
+                SqliteNative.SQLITE_OPEN_READWRITE);
+            try
+            {
+                VerifyUnencrypted(connection, path);
+                JournalMode journalMode = ReadJournalMode(connection, path);
+                return new DatabaseHandle(connection, path, CipherConfiguration.Default, isEncrypted: false, journalMode);
+            }
+            catch
+            {
+                connection.Dispose();
                 throw;
             }
         });
@@ -90,8 +174,25 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     /// <param name="passphrase">Passphrase used to decrypt the database. Must not be null or empty.</param>
     public static Task<DatabaseHandle> Open(string path, string passphrase)
     {
-        ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentException.ThrowIfNullOrEmpty(passphrase);
+        return OpenEncrypted(path, conn => ApplyKey(conn, passphrase));
+    }
+
+    /// <summary>
+    /// Opens an existing encrypted database file keyed by a 32-byte raw key (ADR 008). A file created
+    /// with a passphrase does not open this way, nor the reverse.
+    /// </summary>
+    /// <param name="path">Absolute path to an existing database file.</param>
+    /// <param name="rawKey">Exactly <see cref="RawKeyLength"/> bytes. Not retained and not zeroed by the library.</param>
+    public static Task<DatabaseHandle> Open(string path, byte[] rawKey)
+    {
+        ValidateRawKey(rawKey);
+        return OpenEncrypted(path, conn => ApplyRawKey(conn, rawKey));
+    }
+
+    private static Task<DatabaseHandle> OpenEncrypted(string path, Action<DatabaseConnection> applyKey)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
 
         if (!File.Exists(path))
             throw new FileNotFoundException($"Database file not found: {path}", path);
@@ -102,10 +203,10 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
                 SqliteNative.SQLITE_OPEN_READWRITE);
             try
             {
-                ApplyKey(connection, passphrase);
+                applyKey(connection);
                 VerifyKey(connection, path);
-                VerifyWalMode(connection, path);
-                return new DatabaseHandle(connection, path, CipherConfiguration.Default);
+                JournalMode journalMode = ReadJournalMode(connection, path);
+                return new DatabaseHandle(connection, path, CipherConfiguration.Default, isEncrypted: true, journalMode);
             }
             catch
             {
@@ -122,7 +223,19 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     /// <summary>Absolute path to the database file.</summary>
     public string Path { get; }
 
-    /// <summary>Cipher configuration. On Open, reflects library defaults — actual stored config is in the file header.</summary>
+    /// <summary>
+    /// False when the handle was created by <see cref="CreateUnencrypted"/> or <see cref="OpenUnencrypted"/>:
+    /// the file is plain SQLite and <see cref="CipherConfiguration"/> does not apply.
+    /// </summary>
+    public bool IsEncrypted { get; }
+
+    /// <summary>The journal mode requested at creation, or read from the file on open (ADR 008).</summary>
+    public JournalMode JournalMode { get; }
+
+    /// <summary>Length in bytes of a raw key (<see cref="Create(string, byte[], CipherConfiguration?, JournalMode)"/>).</summary>
+    public const int RawKeyLength = 32;
+
+    /// <summary>Cipher configuration. On Open, reflects library defaults — actual stored config is in the file header. Meaningless when <see cref="IsEncrypted"/> is false.</summary>
     public CipherConfiguration CipherConfiguration { get; }
 
     /// <summary>True if this handle has been disposed.</summary>
@@ -197,11 +310,31 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(newPassphrase);
         ThrowIfDisposed();
+        if (!IsEncrypted)
+            throw new InvalidOperationException("Rekey is not available on an unencrypted database.");
 
+        return RekeyWith($"'{EscapePassphrase(newPassphrase)}'");
+    }
+
+    /// <summary>
+    /// Changes the key on the database to a 32-byte raw key (ADR 008). Rewrites the entire database
+    /// file. Either kind of key may replace either kind.
+    /// </summary>
+    public Task Rekey(byte[] newRawKey)
+    {
+        ValidateRawKey(newRawKey);
+        ThrowIfDisposed();
+        if (!IsEncrypted)
+            throw new InvalidOperationException("Rekey is not available on an unencrypted database.");
+        return RekeyWith(RawKeyLiteral(newRawKey));
+    }
+
+    private Task RekeyWith(string keyLiteral)
+    {
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Enqueue(new CompositeOperation<bool>(conn =>
         {
-            conn.Execute($"PRAGMA rekey = '{EscapePassphrase(newPassphrase)}'");
+            conn.Execute($"PRAGMA rekey = {keyLiteral}");
             return true;
         }, tcs));
         return tcs.Task;
@@ -505,6 +638,31 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
     private static void ApplyKey(DatabaseConnection conn, string passphrase) =>
         conn.Execute($"PRAGMA key = '{EscapePassphrase(passphrase)}'");
 
+    /// <summary>SQLCipher's blob-literal form: the bytes are the page key, no KDF runs (ADR 008).</summary>
+    private static void ApplyRawKey(DatabaseConnection conn, byte[] rawKey) =>
+        conn.Execute($"PRAGMA key = {RawKeyLiteral(rawKey)}");
+
+    private static string RawKeyLiteral(byte[] rawKey) => $"\"x'{Convert.ToHexString(rawKey)}'\"";
+
+    private static void ValidateRawKey(byte[] rawKey)
+    {
+        ArgumentNullException.ThrowIfNull(rawKey);
+        if (rawKey.Length != RawKeyLength)
+            throw new ArgumentException($"A raw key must be exactly {RawKeyLength} bytes.", nameof(rawKey));
+    }
+
+    private static void ValidateCreatePath(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        if (File.Exists(path))
+            throw new InvalidOperationException($"Database file already exists: {path}");
+
+        string? directory = System.IO.Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            throw new DirectoryNotFoundException($"Directory does not exist: {directory}");
+    }
+
     private static void ApplyCipherConfiguration(DatabaseConnection conn, CipherConfiguration config)
     {
         conn.Execute($"PRAGMA cipher_page_size = {config.PageSize}");
@@ -513,12 +671,36 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
         conn.Execute($"PRAGMA cipher_hmac_algorithm = {config.HmacAlgorithmPragmaValue}");
     }
 
-    private static void EnableWalMode(DatabaseConnection conn)
+    private const string WalPragmaValue = "wal";
+    private const string RollbackPragmaValue = "delete";
+
+    private static void SetJournalMode(DatabaseConnection conn, JournalMode mode)
     {
-        var result = conn.Query("PRAGMA journal_mode = WAL");
+        string requested = mode switch
+        {
+            JournalMode.Wal => WalPragmaValue,
+            JournalMode.Rollback => RollbackPragmaValue,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown journal mode."),
+        };
+        var result = conn.Query($"PRAGMA journal_mode = {requested.ToUpperInvariant()}");
         // The PRAGMA returns the resulting journal mode
-        if (result.Count == 0 || result[0][0].AsText() != "wal")
-            throw new InvalidOperationException("Failed to enable WAL mode.");
+        if (result.Count == 0 || !string.Equals(result[0][0].AsText(), requested, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Failed to set journal mode {mode}.");
+    }
+
+    /// <summary>Reads the file's journal mode; only the two modes this library creates are accepted.</summary>
+    private static JournalMode ReadJournalMode(DatabaseConnection conn, string path)
+    {
+        var result = conn.Query("PRAGMA journal_mode");
+        string reported = result.Count == 0 ? "" : result[0][0].AsText();
+        return reported.ToLowerInvariant() switch
+        {
+            WalPragmaValue => JournalMode.Wal,
+            RollbackPragmaValue => JournalMode.Rollback,
+            _ => throw new InvalidOperationException(
+                $"Database at '{path}' is in journal mode '{reported}', which this library does not create. " +
+                "Only databases created by BetterPractice.SqlCipher are supported."),
+        };
     }
 
     private static void VerifyKey(DatabaseConnection conn, string path)
@@ -537,13 +719,20 @@ public sealed class DatabaseHandle : IDisposable, IAsyncDisposable
         }
     }
 
-    private static void VerifyWalMode(DatabaseConnection conn, string path)
+    private static void VerifyUnencrypted(DatabaseConnection conn, string path)
     {
-        var result = conn.Query("PRAGMA journal_mode");
-        if (result.Count == 0 || result[0][0].AsText() != "wal")
-            throw new InvalidOperationException(
-                $"Database at '{path}' is not in WAL mode. " +
-                "Only databases created by BetterPractice.SqlCipher are supported.");
+        try
+        {
+            conn.Execute("SELECT count(*) FROM sqlite_master");
+        }
+        catch (SqlCipherException ex) when (
+            ex.SqliteResultCode == SqliteNative.SQLITE_NOTADB ||
+            ex.SqliteResultCode == SqliteNative.SQLITE_ERROR)
+        {
+            throw new SqlCipherException(ex.SqliteResultCode,
+                "The file is encrypted or is not a valid SQLite database; use Open with its passphrase.",
+                path);
+        }
     }
 
     private static void InitializeSentinelTable(DatabaseConnection conn) =>

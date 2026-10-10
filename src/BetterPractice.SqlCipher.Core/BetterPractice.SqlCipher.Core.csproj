@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
 
     <PackageId>BetterPractice.SqlCipher.Core</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>BetterPractice.io</Authors>
     <Description>Encrypted embedded database for .NET — BetterPractice.SqlCipher managed library.</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>

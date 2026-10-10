@@ -34,6 +34,37 @@ await using var db = await DatabaseHandle.Open("/path/to/app.db", "your-passphra
 
 `DatabaseHandle` is `IAsyncDisposable`. Always use `await using` to ensure the operation queue drains cleanly before the connection is closed.
 
+### Unencrypted databases
+
+For data that is public or already ciphertext, a handle can manage a plain SQLite file with the same API. No key is applied; the file is readable by any SQLite tool, `IsEncrypted` is false, and `Rekey` is unavailable.
+
+```csharp
+await using var db = await DatabaseHandle.CreateUnencrypted("/path/to/public.db");
+await using var db = await DatabaseHandle.OpenUnencrypted("/path/to/public.db");
+```
+
+`OpenUnencrypted` fails with an explicit error on an encrypted file, and `Open` fails on an unencrypted one.
+
+### Raw keys
+
+When you already hold a full-entropy 32-byte key (for example the output of a KDF you run yourself), pass it as bytes. SQLCipher applies it directly and skips its own PBKDF2 stretching, so opening costs no key derivation. A database created with a raw key cannot be opened with a passphrase, or the reverse.
+
+```csharp
+byte[] key = ...; // exactly 32 bytes
+await using var db = await DatabaseHandle.Create("/path/to/app.db", key);
+await using var db = await DatabaseHandle.Open("/path/to/app.db", key);
+await db.Rekey(newKey);
+```
+
+### Journal mode
+
+Databases are created in WAL mode by default. Pass `JournalMode.Rollback` for files that must stay a single file at all times, such as files copied between media, backed up as opaque blobs, or opened from read-only storage. The mode is fixed at creation and reported by `db.JournalMode`; `Open` accepts either mode and never changes it.
+
+```csharp
+await using var db = await DatabaseHandle.Create("/path/to/app.db", "your-passphrase", journalMode: JournalMode.Rollback);
+await using var db = await DatabaseHandle.CreateUnencrypted("/path/to/public.db", JournalMode.Rollback);
+```
+
 ### Custom cipher configuration
 
 ```csharp

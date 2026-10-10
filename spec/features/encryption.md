@@ -7,7 +7,7 @@
 
 ## Overview
 
-All databases managed by BetterPractice.SqlCipher are encrypted using SQLCipher. The Passphrase is provided by the caller at creation and open time. It is never stored, logged, or retained after use. Rekeying is supported as an explicit, expensive operation.
+Databases managed by BetterPractice.SqlCipher are encrypted using SQLCipher unless created through the explicit unencrypted entry point (see `database-lifecycle.md`). The key is either a Passphrase, run through the KDF, or a Raw Key, applied as is (ADR 008). It is provided by the caller at creation and open time, never stored, logged, or retained after use. Rekeying is supported as an explicit, expensive operation.
 
 ---
 
@@ -25,6 +25,20 @@ SQLCipher derives the encryption key from the Passphrase using the KDF Algorithm
 
 ---
 
+## Raw Key Application
+
+A Raw Key is exactly 32 bytes. It is applied as SQLCipher's blob literal:
+
+```sql
+PRAGMA key = "x'<64 hexadecimal digits>'";
+```
+
+SQLCipher uses the bytes directly as the page encryption key and skips the KDF. The per-page HMAC key is still derived, from the raw key and the file's salt, with SQLCipher's fixed two-iteration fast KDF; `KdfIterations` and `KdfAlgorithm` in the CipherConfiguration therefore have no effect on the cost of a raw-key open. Hexadecimal needs no escaping. A key of any other length is rejected before any native call. The byte array is the caller's; the library does not zero it and does not retain it.
+
+A database created with a Raw Key stores a different key than one created with a Passphrase of the same bytes, so the two open paths are not interchangeable for one file.
+
+---
+
 ## Key Verification on Open
 
 SQLCipher does not fail immediately on an incorrect key — it fails when the first data page is read. After applying the key, the library verifies it explicitly:
@@ -39,15 +53,16 @@ If this query returns an error (SQLite result code `SQLITE_NOTADB` or similar), 
 
 ## Rekeying
 
-**Trigger:** Caller invokes `DatabaseHandle.Rekey(newPassphrase)`
+**Trigger:** Caller invokes `DatabaseHandle.Rekey(newPassphrase)` or `DatabaseHandle.Rekey(newRawKey)`
 
-Rekeying changes the Passphrase on an existing database. SQLCipher rewrites every page of the database file during this operation.
+Rekeying changes the key on an existing encrypted database. SQLCipher rewrites every page of the database file during this operation. Either form of key may replace either form: the file's cipher configuration is unchanged.
 
 **Steps:**
-1. Validate: `newPassphrase` is non-null and non-empty; handle is not disposed
+1. Validate: `newPassphrase` is non-null and non-empty, or `newRawKey` is 32 bytes; handle is not disposed and `IsEncrypted` is true (an Unencrypted Database cannot be rekeyed)
 2. Submit an Operation to the Operation Queue containing:
    ```sql
-   PRAGMA rekey = 'newPassphrase';
+   PRAGMA rekey = 'newPassphrase';        -- or
+   PRAGMA rekey = "x'<64 hex digits>'";
    ```
 3. The background consumer executes the PRAGMA
 4. On success, the new Passphrase is now active — the old Passphrase will not open the database
@@ -63,7 +78,7 @@ Rekeying changes the Passphrase on an existing database. SQLCipher rewrites ever
 
 ## Cipher Configuration at Creation
 
-The CipherConfiguration PRAGMAs are applied in this order immediately after the key PRAGMA, before WAL mode is set:
+The CipherConfiguration PRAGMAs are applied in this order immediately after the key PRAGMA, before the journal mode is set:
 
 ```sql
 PRAGMA cipher_page_size = <PageSize>;
@@ -79,6 +94,5 @@ These PRAGMAs must be applied before the first data is written. Once the databas
 ## Out of Scope
 
 - Zeroing the Passphrase string in managed memory (requires pinned memory / `SecureString`; deferred)
-- Raw key bytes (binary key material without KDF); only string passphrases are supported
 - Cipher configuration migration (changing cipher config on an existing database requires a `VACUUM INTO` a new file; this is not implemented)
 - SQLCipher 3 compatibility mode
